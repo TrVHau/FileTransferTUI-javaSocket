@@ -20,17 +20,23 @@ public class TcpServer implements Runnable {
     public void run() {
         try {
             serverSocket = new ServerSocket(Protocol.TCP_PORT);
+            serverSocket.setSoTimeout(200); // 200ms timeout for faster shutdown
             // System.out.println("TCP Server started on port " + Protocol.TCP_PORT);
 
-            while (running) {
-                Socket clientSocket = serverSocket.accept();
-                // System.out.println("Accepted connection from " + clientSocket.getInetAddress().getHostAddress());
-                PeerConnection connection = new PeerConnection(clientSocket);
-                threadPool.submit(connection);
+            while (running && !Thread.currentThread().isInterrupted()) {
+                try {
+                    Socket clientSocket = serverSocket.accept();
+                    // System.out.println("Accepted connection from " + clientSocket.getInetAddress().getHostAddress());
+                    PeerConnection connection = new PeerConnection(clientSocket);
+                    threadPool.submit(connection);
+                } catch (java.net.SocketTimeoutException e) {
+                    // Timeout, continue loop to check running flag
+                    continue;
+                }
             }
             
         } catch (Exception e) {
-            if (running) {
+            if (running && !Thread.currentThread().isInterrupted()) {
                 // System.out.println("TCP Server encountered an error: " + e.getMessage());
             }
         } finally {

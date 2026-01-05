@@ -19,20 +19,26 @@ public class UdpListener implements Runnable {
     public void run() {
         try{
             socket = new DatagramSocket(Protocol.UDP_PORT);
+            socket.setSoTimeout(200); // 200ms timeout for faster shutdown
             // System.out.println("UDP Listener started on port " + Protocol.UDP_PORT);
 
             byte[] buffer = new byte[1024];
 
-            while (running) {
-                DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
-                socket.receive(packet);
+            while (running && !Thread.currentThread().isInterrupted()) {
+                try {
+                    DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
+                    socket.receive(packet);
 
-                String message = new String(packet.getData(), 0, packet.getLength());
-                handlePacket(message, packet.getAddress());
+                    String message = new String(packet.getData(), 0, packet.getLength());
+                    handlePacket(message, packet.getAddress());
+                } catch (java.net.SocketTimeoutException e) {
+                    // Timeout, continue loop to check running flag
+                    continue;
+                }
             }
         }
         catch (Exception e) {
-            if (running) {
+            if (running && !Thread.currentThread().isInterrupted()) {
                 // System.out.println("UDP Listener encountered an error:"+ e.getMessage());
             }
         } finally {

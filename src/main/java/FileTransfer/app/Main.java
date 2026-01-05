@@ -64,15 +64,28 @@ public class Main {
             tcpServer.stop();
         }
         
-        // Interrupt threads to unblock them
-        if (broadcasterThread != null && broadcasterThread.isAlive()) {
-            broadcasterThread.interrupt();
-        }
-        if (listenerThread != null && listenerThread.isAlive()) {
-            listenerThread.interrupt();
-        }
-        if (tcpThread != null && tcpThread.isAlive()) {
-            tcpThread.interrupt();
+        // Wait for threads to finish with longer timeout
+        try {
+            if (broadcasterThread != null && broadcasterThread.isAlive()) {
+                broadcasterThread.join(1000);
+                if (broadcasterThread.isAlive()) {
+                    broadcasterThread.interrupt();
+                }
+            }
+            if (listenerThread != null && listenerThread.isAlive()) {
+                listenerThread.join(1000);
+                if (listenerThread.isAlive()) {
+                    listenerThread.interrupt();
+                }
+            }
+            if (tcpThread != null && tcpThread.isAlive()) {
+                tcpThread.join(1000);
+                if (tcpThread.isAlive()) {
+                    tcpThread.interrupt();
+                }
+            }
+        } catch (InterruptedException e) {
+            // Ignore
         }
     }
 }

@@ -22,7 +22,7 @@ public class UdpBroadcaster implements Runnable {
             String peerID = InetAddress.getLocalHost().getHostAddress();
             String peerName = System.getProperty("user.name");
 
-            while (running) {
+            while (running && !Thread.currentThread().isInterrupted()) {
                 String message = Protocol.buildDiscover(peerID, peerName, Protocol.TCP_PORT);
                 
                 byte[] buffer = message.getBytes();
