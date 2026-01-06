@@ -78,14 +78,11 @@ public class FileReceiver {
     }
     
     private void printProgress() {
-        if (expectedBytes > 0) {
-            double progress = getProgress();
-            // System.out.printf("\rReceiving: %.2f%% (%d/%d bytes)", progress, receivedBytes, expectedBytes);
-            
-            if (receivedBytes >= expectedBytes) {
-                // System.out.println(); // New line when complete
-            }
-        }
+        // Progress tracking disabled for TUI mode
+        // if (expectedBytes > 0) {
+        //     double progress = getProgress();
+        //     System.out.printf("\rReceiving: %.2f%% (%d/%d bytes)", progress, receivedBytes, expectedBytes);
+        // }
     }
     
     /**

@@ -62,14 +62,11 @@ public class FileSender {
     }
     
     private void printProgress() {
-        if (totalBytes > 0) {
-            double progress = getProgress();
-            // System.out.printf("\rSending: %.2f%% (%d/%d bytes)", progress, sentBytes, totalBytes);
-            
-            if (sentBytes >= totalBytes) {
-                // System.out.println(); // New line when complete
-            }
-        }
+        // Progress tracking disabled for TUI mode
+        // if (totalBytes > 0) {
+        //     double progress = getProgress();
+        //     System.out.printf("\rSending: %.2f%% (%d/%d bytes)", progress, sentBytes, totalBytes);
+        // }
     }
     
     /**

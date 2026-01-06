@@ -31,7 +31,9 @@ public class PeerConnection implements Runnable {
     }
     
     private State currentState;
+    @SuppressWarnings("unused")
     private String remotePeerId;
+    @SuppressWarnings("unused")
     private String remoteDeviceName;
     private String pendingFilename;
     private long pendingFilesize;
@@ -198,6 +200,7 @@ public class PeerConnection implements Runnable {
             FileSender sender = new FileSender(fileToSend, socket.getOutputStream());
             
             // System.out.println("Sending file: " + fileToSend.getName());
+            @SuppressWarnings("unused")
             String checksum = sender.sendFile();
             
             // System.out.println("File sent successfully, checksum: " + checksum);
@@ -265,6 +268,7 @@ public class PeerConnection implements Runnable {
     }
     
     private void handleError(String[] fields) {
+        @SuppressWarnings("unused")
         String errorMsg = fields.length > 0 ? fields[0] : "Unknown error";
         // System.err.println("Error from peer: " + errorMsg);
         currentState = State.ERROR;
@@ -346,6 +350,7 @@ public class PeerConnection implements Runnable {
     
     // ===== Helper Methods =====
     
+    @SuppressWarnings("unused")
     private String formatFileSize(long bytes) {
         if (bytes < 1024) return bytes + " B";
         int exp = (int) (Math.log(bytes) / Math.log(1024));
