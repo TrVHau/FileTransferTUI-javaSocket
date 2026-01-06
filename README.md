@@ -22,7 +22,7 @@ A peer-to-peer file transfer application with Terminal User Interface (TUI) for 
 1. Clone the repository:
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/TrVHau/FileTransferTUI-javaSocket.git
 cd FileTransferTUI-javaSocket
 ```
 
@@ -270,7 +270,7 @@ For production use, consider adding:
 
 ## License
 
-[Add your license here]
+no license
 
 ## Contributing
 
@@ -278,7 +278,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## Authors
 
-[Add your name here]
+Trần Văn Dậu
 
 ## Acknowledgments
 
