@@ -9,7 +9,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import FileTransfer.core.protocol.Protocol;
 
 public class PeerManager {
-    private Map<String, Peer> peers= new ConcurrentHashMap<>();
+    private final Map<String, Peer> peers = new ConcurrentHashMap<>();
 
     // add or update peer
     public void addOrUpdatePeer(String peerID, String peerName, String ipAddress) {
@@ -43,10 +43,11 @@ public class PeerManager {
     public void deleteTimedOutPeers() {
         LocalDateTime now = LocalDateTime.now();
         peers.values().removeIf(peer -> !isAlive(peer, now));
-    }   
-private boolean isAlive(Peer peer, LocalDateTime now) {
-    return peer.getLastSeen()
-            .plusNanos(Protocol.DISCOVER_TIMEOUT * 1_000_000L)
-            .isAfter(now);
-}
+    }
+    
+    private boolean isAlive(Peer peer, LocalDateTime now) {
+        return peer.getLastSeen()
+                .plusNanos(Protocol.DISCOVER_TIMEOUT * 1_000_000L)
+                .isAfter(now);
+    }
 }

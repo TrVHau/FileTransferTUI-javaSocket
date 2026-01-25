@@ -1,286 +1,189 @@
-# FileTransferTUI - P2P LAN File Transfer Application
+# P2P LAN File Transfer
 
-A peer-to-peer file transfer application with Terminal User Interface (TUI) for sharing files over Local Area Network using Java sockets.
+Ứng dụng truyền file peer-to-peer với giao diện TUI (Terminal User Interface) để chia sẻ file giữa các thiết bị trong cùng mạng LAN.
 
-## Features
+![Java](https://img.shields.io/badge/Java-21+-orange)
+![License](https://img.shields.io/badge/License-MIT-blue)
 
-- 🌐 **Peer-to-Peer Discovery**: Automatic peer discovery via UDP broadcast
-- 📁 **File Transfer**: Direct file transfer between peers using TCP
-- 🖥️ **Terminal UI**: Clean and intuitive text-based user interface powered by Lanterna
-- 🔒 **Protocol-Based**: Custom text-based protocol for reliable communication
-- ✅ **MD5 Checksum**: File integrity verification using MD5 checksums
-- 🚀 **Zero Configuration**: No server required, fully decentralized
+## Tính năng
 
-## Requirements
+- 🔍 **Tự động phát hiện**: Phát hiện các peer trên mạng LAN qua UDP broadcast
+- 📁 **Trình duyệt file**: Duyệt và chọn file trực tiếp trong TUI
+- 🖥️ **Giao diện TUI**: Giao diện terminal đẹp mắt với Lanterna
+- 🔄 **Cập nhật realtime**: Danh sách peer tự động refresh mỗi 3 giây
+- 📤 **Truyền trực tiếp**: P2P file transfer qua kết nối TCP
+- ✅ **Xác minh MD5**: Kiểm tra tính toàn vẹn file bằng MD5 checksum
 
-- Java 17 or higher
+## Yêu cầu
+
+- Java 21 hoặc cao hơn
 - Maven 3.6+
-- Network connectivity on the same LAN
+- Các thiết bị phải cùng mạng LAN
 
-## Installation
+## Cài đặt & Chạy
 
-1. Clone the repository:
-
-```bash
-git clone https://github.com/TrVHau/FileTransferTUI-javaSocket.git
-cd FileTransferTUI-javaSocket
-```
-
-2. Build the project:
-
-```bash
-mvn clean compile
-```
-
-## Usage
-
-### Running the Application
-
-Start the application using Maven:
-
-```bash
-mvn exec:java -Dexec.mainClass="FileTransfer.app.Main"
-```
-
-Or create a JAR file and run it:
+### Build
 
 ```bash
 mvn clean package
+```
+
+### Chạy ứng dụng
+
+```bash
+# Cách 1: Chạy với Maven
+mvn exec:java
+
+# Cách 2: Chạy JAR
 java -jar target/FileTransferTUI-javaSocket-1.0-SNAPSHOT.jar
 ```
 
-### Using the TUI
+## Hướng dẫn sử dụng
 
-1. **Main Screen**: Shows list of discovered peers on your LAN
+### Giao diện chính
 
-   - Peers are automatically discovered and listed
-   - Your own device is filtered out from the list
+```
+╔════════════════════════════════════════════╗
+║       P2P LAN File Transfer System         ║
+╚════════════════════════════════════════════╝
+┌─Local Info─────────────────────────────────┐
+│ You: dau @ 192.168.1.100      Time: 12:30  │
+└────────────────────────────────────────────┘
 
-2. **Send File**:
+Discovered Peers: 2
+╔═Online Peers═══════════════════════════════╗
+║  1. john            @ 192.168.1.101 [Send] ║
+║  2. mary            @ 192.168.1.102 [Send] ║
+╚════════════════════════════════════════════╝
 
-   - Press `S` key or click "Send File" button
-   - Select a peer from the list
-   - Browse and select a file to send
-   - Wait for recipient to accept
+[↻ Refresh] [📁 Send File] [✕ Exit]
 
-3. **Exit**:
-   - Press `Q` key or click "Quit" button
-   - Application will shutdown cleanly
+┌─Status─────────────────────────────────────┐
+│ Ready - 2 peer(s) online                   │
+└────────────────────────────────────────────┘
+[Tab] Navigate  [Enter] Select  [Esc] Exit
+```
 
-### Keyboard Shortcuts
+### Phím tắt
 
-- `S` - Send File
-- `Q` - Quit
-- `R` - Refresh peer list
-- `Arrow Keys` - Navigate UI elements
-- `Enter` - Select/Confirm
-- `Esc` - Cancel/Go back
+| Phím    | Chức năng                     |
+| ------- | ----------------------------- |
+| `Tab`   | Di chuyển giữa các thành phần |
+| `Enter` | Chọn/Xác nhận                 |
+| `Esc`   | Thoát/Hủy                     |
 
-## Protocol
+### Gửi file
 
-The application uses a custom text-based protocol over TCP/UDP:
+1. Đợi các peer xuất hiện trong danh sách
+2. Nhấn `Send →` bên cạnh peer, hoặc nhấn `📁 Send File`
+3. Duyệt đến file muốn gửi
+4. Chọn file để bắt đầu gửi
 
-### UDP Discovery (Port 50000)
+### Nhận file
 
-- `DISCOVER|<peerId>|<peerName>|<tcpPort>` - Broadcast peer presence
+File được nhận tự động và lưu vào thư mục `./downloads/`
 
-### TCP Control Messages (Port 50001)
-
-- `HELLO|<peerId>|<peerName>` - Handshake
-- `SEND_REQUEST|<filename>|<filesize>` - Request to send file
-- `SEND_ACCEPT` - Accept file transfer
-- `SEND_REJECT` - Reject file transfer
-- `START_SEND` - Begin file transmission
-- `DONE` - Transfer completed
-- `CANCEL` - Cancel transfer
-- `ERROR|<message>` - Error occurred
-
-See [protocol.md](protocol.md) for detailed protocol specification.
-
-## Project Structure
+## Cấu trúc project
 
 ```
 src/main/java/FileTransfer/
 ├── app/
-│   └── Main.java                 # Application entry point
+│   └── Main.java                 # Entry point
 ├── core/
 │   ├── discovery/
-│   │   ├── UdpBroadcaster.java  # UDP broadcast for peer discovery
-│   │   └── UdpListener.java     # UDP listener for discovering peers
+│   │   ├── UdpBroadcaster.java   # Broadcast UDP
+│   │   └── UdpListener.java      # Lắng nghe UDP
 │   ├── network/
-│   │   ├── MessageParser.java    # Protocol message parser
-│   │   ├── PeerConnection.java   # Handles peer-to-peer connection
-│   │   └── TcpServer.java        # TCP server for incoming connections
+│   │   ├── MessageParser.java    # Parse message
+│   │   ├── PeerConnection.java   # Kết nối TCP
+│   │   └── TcpServer.java        # TCP server
 │   ├── peer/
-│   │   ├── Peer.java             # Peer data model
-│   │   └── PeerManager.java      # Manages discovered peers
+│   │   ├── Peer.java             # Model peer
+│   │   └── PeerManager.java      # Quản lý peers
 │   ├── protocol/
-│   │   ├── MessageType.java      # Message type enumeration
-│   │   └── Protocol.java         # Protocol constants and builders
+│   │   ├── MessageType.java      # Enum message types
+│   │   └── Protocol.java         # Constants & builders
 │   └── transfer/
-│       ├── FileReceiver.java     # Handles file reception
-│       └── FileSender.java       # Handles file transmission
+│       ├── FileReceiver.java     # Nhận file
+│       └── FileSender.java       # Gửi file
 └── ui/
-    ├── FileBrowserDialog.java    # File selection dialog
-    ├── PeerSelectionDialog.java  # Peer selection dialog
-    └── TUIManager.java           # Main TUI window manager
+    ├── FileBrowserDialog.java    # Dialog chọn file
+    ├── PeerSelectionDialog.java  # Dialog chọn peer
+    └── TUIManager.java           # Quản lý TUI
 ```
 
-## Network Configuration
+## Network Protocol
 
-### Ports Used
+### Ports
 
-- **UDP 50000**: Peer discovery broadcasts
-- **TCP 50001**: File transfer control and data
+| Port  | Protocol | Mục đích       |
+| ----- | -------- | -------------- |
+| 50000 | UDP      | Peer discovery |
+| 50001 | TCP      | File transfer  |
 
-### Firewall Configuration
+### Message Types
 
-If you're having connection issues, ensure these ports are open:
+| Type           | Mô tả                  |
+| -------------- | ---------------------- |
+| `DISCOVER`     | Broadcast sự hiện diện |
+| `HELLO`        | Handshake kết nối TCP  |
+| `SEND_REQUEST` | Yêu cầu gửi file       |
+| `SEND_ACCEPT`  | Chấp nhận nhận file    |
+| `SEND_REJECT`  | Từ chối nhận file      |
+| `START_SEND`   | Bắt đầu truyền data    |
+| `DONE`         | Hoàn tất transfer      |
+| `CANCEL`       | Hủy transfer           |
+| `ERROR`        | Có lỗi xảy ra          |
 
-**Linux (iptables):**
+### Message Format
 
-```bash
-sudo iptables -A INPUT -p udp --dport 50000 -j ACCEPT
-sudo iptables -A INPUT -p tcp --dport 50001 -j ACCEPT
+```
+MESSAGE_TYPE|field1|field2|...\n
 ```
 
-**Linux (firewalld):**
+Ví dụ:
 
-```bash
-sudo firewall-cmd --add-port=50000/udp --permanent
-sudo firewall-cmd --add-port=50001/tcp --permanent
-sudo firewall-cmd --reload
+```
+DISCOVER|192.168.1.100|dau|50001
+SEND_REQUEST|document.pdf|1048576
 ```
 
-**macOS:**
+## Cấu hình mặc định
 
-```bash
-# Allow in System Preferences > Security & Privacy > Firewall
-# Or disable firewall temporarily for testing
+```java
+UDP_PORT = 50000          // Port discovery
+TCP_PORT = 50001          // Port transfer
+DISCOVER_INTERVAL = 3000  // Broadcast interval (ms)
+DISCOVER_TIMEOUT = 10000  // Peer timeout (ms)
 ```
 
-## Troubleshooting
+## Xử lý sự cố
 
-### No Peers Discovered
+### Không tìm thấy peer
 
-- Check if all devices are on the same network/subnet
-- Verify firewall settings (UDP port 50000)
-- Ensure application is running on both devices
-- Check if broadcast packets are allowed on your network
+- Đảm bảo các thiết bị cùng subnet mạng
+- Kiểm tra firewall cho UDP port 50000 và TCP port 50001
+- Đảm bảo ứng dụng đang chạy trên thiết bị khác
 
-### Connection Failed
+### Kết nối thất bại
 
-- Verify TCP port 50001 is not blocked
-- Check if both devices can ping each other
-- Ensure no other application is using port 50001
+- Kiểm tra peer còn online không
+- Verify TCP port 50001 không bị block
+- Thử refresh lại danh sách peer
 
-### File Transfer Fails
+### Không nhận được file
 
-- Check available disk space
-- Verify file permissions
-- Check network stability
-- Look for firewall interference
+- Kiểm tra thư mục `./downloads/` tồn tại và có quyền ghi
+- Kiểm tra dung lượng ổ đĩa
 
-### TUI Display Issues
+## Dependencies
 
-- Ensure terminal supports ANSI escape codes
-- Try resizing terminal window
-- Use a terminal emulator with better compatibility (e.g., GNOME Terminal, iTerm2)
-
-## Development
-
-### Building from Source
-
-```bash
-# Compile
-mvn clean compile
-
-# Run tests (if any)
-mvn test
-
-# Create JAR
-mvn clean package
-
-# Run with debugging
-mvn exec:java -Dexec.mainClass="FileTransfer.app.Main"
-```
-
-### Dependencies
-
-- **Lanterna 3.1.1**: Terminal UI framework
-- **Java Socket API**: Network communication
-- **Maven**: Build and dependency management
-
-## Architecture
-
-The application follows a modular architecture:
-
-1. **Discovery Layer**: UDP-based peer discovery with automatic timeout
-2. **Network Layer**: TCP-based reliable communication
-3. **Transfer Layer**: Chunked file transfer with MD5 verification
-4. **UI Layer**: Event-driven terminal interface
-
-### State Machine
-
-Each peer connection follows a state machine:
-
-- IDLE → WAITING_FOR_RESPONSE → WAITING_FOR_START → SENDING/RECEIVING → COMPLETED
-
-## Security Considerations
-
-⚠️ **Important**: This application is designed for trusted local networks only.
-
-- No encryption is implemented
-- No authentication mechanism
-- Files are transferred in plain text
-- Suitable for home/office LANs, not public networks
-
-For production use, consider adding:
-
-- TLS/SSL encryption
-- User authentication
-- File transfer authorization
-- Access control lists
-
-## Performance
-
-- **Transfer Speed**: Limited by network bandwidth
-- **Buffer Size**: 8KB chunks for optimal performance
-- **Discovery Interval**: 3 seconds between broadcasts
-- **Peer Timeout**: 10 seconds of inactivity
-
-## Known Limitations
-
-- Single file transfer at a time (no concurrent transfers)
-- No transfer resume/retry capability
-- No compression
-- Limited to LAN (no WAN/Internet support)
-- IPv4 only
-
-## Future Enhancements
-
-- [ ] Multiple simultaneous transfers
-- [ ] Transfer progress bars in TUI
-- [ ] File transfer history
-- [ ] Transfer resume support
-- [ ] File compression
-- [ ] IPv6 support
-- [ ] Encryption (TLS/SSL)
-- [ ] User authentication
+- [Lanterna 3.1.2](https://github.com/mabe02/lanterna) - Terminal UI library
 
 ## License
 
-no license
+MIT License
 
-## Contributing
+---
 
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## Authors
-
-Trần Văn Dậu
-
-## Acknowledgments
-
-- [Lanterna](https://github.com/mabe02/lanterna) - Terminal UI library
-- Protocol design inspired by common P2P file sharing applications
+Built with ❤️ using Java Sockets & Lanterna TUI
