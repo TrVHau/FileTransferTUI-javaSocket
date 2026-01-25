@@ -202,7 +202,7 @@ mvn test
 mvn clean package
 
 # Run with debugging
-mvn exec:java -Dexec.mainClass="FileTransfer.app.Main" -X
+mvn exec:java -Dexec.mainClass="FileTransfer.app.Main"
 ```
 
 ### Dependencies

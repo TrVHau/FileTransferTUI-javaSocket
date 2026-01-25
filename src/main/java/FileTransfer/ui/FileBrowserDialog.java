@@ -1,6 +1,7 @@
 package FileTransfer.ui;
 
 import com.googlecode.lanterna.TerminalSize;
+import com.googlecode.lanterna.TextColor;
 import com.googlecode.lanterna.gui2.*;
 import com.googlecode.lanterna.gui2.dialogs.DialogWindow;
 
@@ -12,35 +13,56 @@ public class FileBrowserDialog extends DialogWindow {
     private File currentDirectory;
     private ActionListBox fileListBox;
     private Label pathLabel;
+    private Label statusLabel;
+    private boolean showHiddenFiles = false;
     
     public FileBrowserDialog() {
-        super("Select File");
+        super("Select File to Send");
+        setHints(java.util.Arrays.asList(Window.Hint.CENTERED));
         currentDirectory = new File(System.getProperty("user.home"));
         
         Panel mainPanel = new Panel();
         mainPanel.setLayoutManager(new LinearLayout(Direction.VERTICAL));
         
-        // Path display
-        pathLabel = new Label("Path: " + currentDirectory.getAbsolutePath());
-        mainPanel.addComponent(pathLabel);
-        mainPanel.addComponent(new EmptySpace(new TerminalSize(0, 1)));
+        // Path display with color
+        pathLabel = new Label(currentDirectory.getAbsolutePath());
+        pathLabel.setForegroundColor(TextColor.ANSI.CYAN);
+        mainPanel.addComponent(pathLabel.withBorder(Borders.singleLine("Current Path")));
         
         // File list
-        fileListBox = new ActionListBox(new TerminalSize(60, 15));
+        fileListBox = new ActionListBox(new TerminalSize(65, 15));
         refreshFileList();
         
-        mainPanel.addComponent(fileListBox.withBorder(Borders.singleLine("Files")));
+        mainPanel.addComponent(fileListBox.withBorder(Borders.singleLine("Files & Directories")));
+        
+        // Status label
+        statusLabel = new Label("Select a file to send");
+        statusLabel.setForegroundColor(TextColor.ANSI.YELLOW);
+        mainPanel.addComponent(statusLabel);
         mainPanel.addComponent(new EmptySpace(new TerminalSize(0, 1)));
         
-        // Buttons
+        // Navigation buttons
+        Panel navPanel = new Panel();
+        navPanel.setLayoutManager(new LinearLayout(Direction.HORIZONTAL));
+        
+        Button homeButton = new Button("Home", this::goHome);
+        Button upButton = new Button("Parent", this::goUpDirectory);
+        Button toggleHiddenButton = new Button("Toggle Hidden", this::toggleHiddenFiles);
+        
+        navPanel.addComponent(homeButton);
+        navPanel.addComponent(new EmptySpace(new TerminalSize(1, 1)));
+        navPanel.addComponent(upButton);
+        navPanel.addComponent(new EmptySpace(new TerminalSize(1, 1)));
+        navPanel.addComponent(toggleHiddenButton);
+        
+        mainPanel.addComponent(navPanel);
+        mainPanel.addComponent(new EmptySpace(new TerminalSize(0, 1)));
+        
+        // Cancel button
         Panel buttonPanel = new Panel();
         buttonPanel.setLayoutManager(new LinearLayout(Direction.HORIZONTAL));
         
-        Button upButton = new Button("Parent Dir", this::goUpDirectory);
         Button cancelButton = new Button("Cancel", this::close);
-        
-        buttonPanel.addComponent(upButton);
-        buttonPanel.addComponent(new EmptySpace(new TerminalSize(2, 1)));
         buttonPanel.addComponent(cancelButton);
         
         mainPanel.addComponent(buttonPanel);
@@ -48,12 +70,32 @@ public class FileBrowserDialog extends DialogWindow {
         setComponent(mainPanel);
     }
     
+    private void goHome() {
+        currentDirectory = new File(System.getProperty("user.home"));
+        refreshFileList();
+    }
+    
+    private void toggleHiddenFiles() {
+        showHiddenFiles = !showHiddenFiles;
+        statusLabel.setText(showHiddenFiles ? "Showing hidden files" : "Hiding hidden files");
+        refreshFileList();
+    }
+    
     private void refreshFileList() {
         fileListBox.clearItems();
         
         File[] files = currentDirectory.listFiles();
         if (files == null) {
+            fileListBox.addItem("(Empty or inaccessible)", () -> {});
+            pathLabel.setText(currentDirectory.getAbsolutePath());
             return;
+        }
+        
+        // Filter hidden files if needed
+        if (!showHiddenFiles) {
+            files = Arrays.stream(files)
+                .filter(f -> !f.isHidden() && !f.getName().startsWith("."))
+                .toArray(File[]::new);
         }
         
         // Sort: directories first, then files
@@ -63,27 +105,42 @@ public class FileBrowserDialog extends DialogWindow {
             return f1.getName().compareToIgnoreCase(f2.getName());
         });
         
+        if (files.length == 0) {
+            fileListBox.addItem("(No files found)", () -> {});
+        }
+        
         for (File file : files) {
             String displayName;
             if (file.isDirectory()) {
-                displayName = "[DIR] " + file.getName();
+                displayName = "[DIR]  " + file.getName() + "/";
             } else {
-                displayName = file.getName() + " (" + formatFileSize(file.length()) + ")";
+                displayName = "[FILE] " + file.getName() + " (" + formatFileSize(file.length()) + ")";
             }
             
             fileListBox.addItem(displayName, () -> {
                 if (file.isDirectory()) {
-                    currentDirectory = file;
-                    pathLabel.setText("Path: " + currentDirectory.getAbsolutePath());
-                    refreshFileList();
+                    if (file.canRead()) {
+                        currentDirectory = file;
+                        pathLabel.setText(currentDirectory.getAbsolutePath());
+                        refreshFileList();
+                        statusLabel.setText("Select a file to send");
+                    } else {
+                        statusLabel.setText("Permission denied: " + file.getName());
+                        statusLabel.setForegroundColor(TextColor.ANSI.RED);
+                    }
                 } else {
-                    selectedFile = file;
-                    close();
+                    if (file.canRead()) {
+                        selectedFile = file;
+                        close();
+                    } else {
+                        statusLabel.setText("Cannot read file: " + file.getName());
+                        statusLabel.setForegroundColor(TextColor.ANSI.RED);
+                    }
                 }
             });
         }
         
-        pathLabel.setText("Path: " + currentDirectory.getAbsolutePath());
+        pathLabel.setText(currentDirectory.getAbsolutePath());
     }
     
     private void goUpDirectory() {

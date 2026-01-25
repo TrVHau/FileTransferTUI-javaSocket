@@ -30,9 +30,18 @@ public class Peer {
     }
     public void setLastSeen(LocalDateTime lastSeen) {
         this.lastSeen = lastSeen;
-    }public void setPeerID(String peerID) {
+    }
+    
+    public void setPeerID(String peerID) {
         PeerID = peerID;
-    }public void setPeerName(String peerName) {
+    }
+    
+    public void setPeerName(String peerName) {
         PeerName = peerName;
+    }
+    
+    @Override
+    public String toString() {
+        return String.format("%s (%s)", PeerName, ipAddress);
     }
 }
