@@ -6,28 +6,46 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import FileTransfer.core.protocol.Protocol;
+import FileTransfer.core.transfer.TransferCallback;
 
 public class TcpServer implements Runnable {
 
     private final ExecutorService threadPool;
     private volatile boolean running = true;
     private ServerSocket serverSocket;
+    private TransferCallback callback;
+    private String downloadPath = System.getProperty("user.home") + "/Downloads/FileTransfer";
+    private String localPeerId = "unknown";
+    private String localPeerName = "unknown";
     
     public TcpServer(int maxConnections) {
         this.threadPool = Executors.newFixedThreadPool(maxConnections);
     }
+    
+    public void setCallback(TransferCallback callback) {
+        this.callback = callback;
+    }
+    
+    public void setDownloadPath(String path) {
+        this.downloadPath = path;
+    }
+    
+    public void setLocalIdentity(String peerId, String peerName) {
+        this.localPeerId = peerId;
+        this.localPeerName = peerName;
+    }
+    
     @Override
     public void run() {
         try {
             serverSocket = new ServerSocket(Protocol.TCP_PORT);
             serverSocket.setSoTimeout(200); // 200ms timeout for faster shutdown
-            // System.out.println("TCP Server started on port " + Protocol.TCP_PORT);
 
             while (running && !Thread.currentThread().isInterrupted()) {
                 try {
                     Socket clientSocket = serverSocket.accept();
-                    // System.out.println("Accepted connection from " + clientSocket.getInetAddress().getHostAddress());
-                    PeerConnection connection = new PeerConnection(clientSocket);
+                    PeerConnection connection = new PeerConnection(clientSocket, callback, localPeerId, localPeerName);
+                    connection.setDownloadPath(downloadPath);
                     threadPool.submit(connection);
                 } catch (java.net.SocketTimeoutException e) {
                     // Timeout, continue loop to check running flag
@@ -37,7 +55,7 @@ public class TcpServer implements Runnable {
             
         } catch (Exception e) {
             if (running && !Thread.currentThread().isInterrupted()) {
-                // System.out.println("TCP Server encountered an error: " + e.getMessage());
+                // Error handling
             }
         } finally {
             if (serverSocket != null && !serverSocket.isClosed()) {
@@ -47,6 +65,7 @@ public class TcpServer implements Runnable {
             }
         }
     }
+    
     public void stop() {
         running = false;
         if (serverSocket != null && !serverSocket.isClosed()) {
@@ -57,6 +76,5 @@ public class TcpServer implements Runnable {
         if (threadPool != null && !threadPool.isShutdown()) {
             threadPool.shutdownNow();
         }
-        // System.out.println("TCP Server stopped");
     }
 }

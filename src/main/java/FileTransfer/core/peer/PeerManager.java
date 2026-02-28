@@ -11,43 +11,26 @@ import FileTransfer.core.protocol.Protocol;
 public class PeerManager {
     private final Map<String, Peer> peers = new ConcurrentHashMap<>();
 
-    // add or update peer
-    public void addOrUpdatePeer(String peerID, String peerName, String ipAddress) {
+    /** Add a new peer or update an existing one from a discovery packet. */
+    public void addOrUpdatePeer(String peerID, String peerName, String ipAddress, int tcpPort) {
         Peer peer = peers.get(peerID);
-
         if (peer == null) {
-            peer = new Peer(peerID, peerName, ipAddress);
-            peers.put(peerID, peer);
-            // System.out.println("Added new peer: " + peerName + " (" + peerID + ") at " + ipAddress);
+            peers.put(peerID, new Peer(peerID, peerName, ipAddress, tcpPort));
         } else {
-            peer.setPeerName(peerName);
-            peer.setIPAddress(ipAddress);
-            peer.setLastSeen(java.time.LocalDateTime.now());
+            peer.update(peerName, ipAddress, tcpPort);
         }
     }
 
-    // get alive peers
+    /** Return peers whose last discovery was within the timeout window. */
     public List<Peer> getAlivePeers() {
-        List<Peer> alivePeers = new ArrayList<>();
-        LocalDateTime now = LocalDateTime.now();
-
-        for (Peer peer : peers.values()) {
-            if (isAlive(peer, now)) {
-                alivePeers.add(peer);
-            }
-        }
-        return alivePeers;
+        cleanUp();
+        return new ArrayList<>(peers.values());
     }
 
-    // delete timed-out peers
-    public void deleteTimedOutPeers() {
-        LocalDateTime now = LocalDateTime.now();
-        peers.values().removeIf(peer -> !isAlive(peer, now));
-    }
-    
-    private boolean isAlive(Peer peer, LocalDateTime now) {
-        return peer.getLastSeen()
-                .plusNanos(Protocol.DISCOVER_TIMEOUT * 1_000_000L)
-                .isAfter(now);
+    /** Remove peers that haven't been seen within the timeout window. */
+    public void cleanUp() {
+        LocalDateTime cutoff = LocalDateTime.now()
+                .minusNanos(Protocol.DISCOVER_TIMEOUT * 1_000_000L);
+        peers.values().removeIf(p -> p.getLastSeen().isBefore(cutoff));
     }
 }

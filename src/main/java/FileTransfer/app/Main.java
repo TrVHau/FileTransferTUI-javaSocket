@@ -10,82 +10,54 @@ public class Main {
     private static UdpListener listener;
     private static TcpServer tcpServer;
     private static TUIManager tuiManager;
-    private static Thread broadcasterThread;
-    private static Thread listenerThread;
-    private static Thread tcpThread;
-    
+
     public static void main(String[] args) {
-        // Shutdown hook for cleanup
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            shutdown();
-        }));
-        
+        Runtime.getRuntime().addShutdownHook(new Thread(Main::shutdown));
+
         try {
-            // Start services silently
+            // Start UDP listener
             listener = new UdpListener();
-            listenerThread = new Thread(listener, "UDP-Listener");
+            Thread listenerThread = new Thread(listener, "UDP-Listener");
             listenerThread.setDaemon(true);
             listenerThread.start();
-            
+
+            // Start UDP broadcaster
             broadcaster = new UdpBroadcaster();
-            broadcasterThread = new Thread(broadcaster, "UDP-Broadcaster");
+            Thread broadcasterThread = new Thread(broadcaster, "UDP-Broadcaster");
             broadcasterThread.setDaemon(true);
             broadcasterThread.start();
-            
+
+            // Start TCP server
             tcpServer = new TcpServer(10);
-            tcpThread = new Thread(tcpServer, "TCP-Server");
+            Thread tcpThread = new Thread(tcpServer, "TCP-Server");
             tcpThread.setDaemon(true);
             tcpThread.start();
-            
-            // Wait for services to start
-            Thread.sleep(1000);
-            
-            // Start TUI
+
+            // Wait for network services to bind
+            Thread.sleep(300);
+
+            // Create TUI with all services ready
             tuiManager = new TUIManager(broadcaster, listener, tcpServer);
+
+            // Wire TCP server callbacks and identity
+            tcpServer.setCallback(tuiManager.getTransferCallback());
+            tcpServer.setDownloadPath(tuiManager.getDownloadPath());
+            tcpServer.setLocalIdentity(broadcaster.getPeerID(), System.getProperty("user.name"));
+
+            // Start TUI (blocking)
             tuiManager.start();
-            
+
         } catch (Exception e) {
-            System.err.println("Error: " + e.getMessage());
+            System.err.println("Fatal: " + e.getMessage());
+        } finally {
             shutdown();
         }
     }
-    
+
     private static void shutdown() {
-        if (tuiManager != null) {
-            tuiManager.shutdown();
-        }
-        if (broadcaster != null) {
-            broadcaster.stop();
-        }
-        if (listener != null) {
-            listener.stop();
-        }
-        if (tcpServer != null) {
-            tcpServer.stop();
-        }
-        
-        // Wait for threads to finish with longer timeout
-        try {
-            if (broadcasterThread != null && broadcasterThread.isAlive()) {
-                broadcasterThread.join(1000);
-                if (broadcasterThread.isAlive()) {
-                    broadcasterThread.interrupt();
-                }
-            }
-            if (listenerThread != null && listenerThread.isAlive()) {
-                listenerThread.join(1000);
-                if (listenerThread.isAlive()) {
-                    listenerThread.interrupt();
-                }
-            }
-            if (tcpThread != null && tcpThread.isAlive()) {
-                tcpThread.join(1000);
-                if (tcpThread.isAlive()) {
-                    tcpThread.interrupt();
-                }
-            }
-        } catch (InterruptedException e) {
-            // Ignore
-        }
+        if (tuiManager != null) tuiManager.shutdown();
+        if (broadcaster != null) broadcaster.stop();
+        if (listener != null) listener.stop();
+        if (tcpServer != null) tcpServer.stop();
     }
 }

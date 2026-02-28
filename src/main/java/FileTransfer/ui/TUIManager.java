@@ -5,6 +5,10 @@ import FileTransfer.core.discovery.UdpListener;
 import FileTransfer.core.network.PeerConnection;
 import FileTransfer.core.network.TcpServer;
 import FileTransfer.core.peer.Peer;
+import FileTransfer.core.transfer.TransferCallback;
+import FileTransfer.core.transfer.TransferInfo;
+import FileTransfer.core.transfer.TransferManager;
+import FileTransfer.core.util.FormatUtils;
 
 import com.googlecode.lanterna.TerminalSize;
 import com.googlecode.lanterna.TextColor;
@@ -23,365 +27,607 @@ import java.net.Socket;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
-public class TUIManager {
+public class TUIManager implements TransferCallback, TransferManager.TransferManagerListener {
+
     private Terminal terminal;
     private Screen screen;
     private MultiWindowTextGUI gui;
     private BasicWindow mainWindow;
-    
-    private UdpListener listener;
+
+    private final UdpListener listener;
+    private final UdpBroadcaster broadcaster;
+    private final TransferManager transferManager;
+
+    // UI Components
     private Panel peerListPanel;
+    private Panel transferPanel;
+    private Panel historyPanel;
     private Label statusLabel;
     private Label timeLabel;
     private Label peerCountLabel;
-    private AtomicBoolean running = new AtomicBoolean(true);
-    private String localIP;
-    private String localName;
-    private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss");
-    
+    private Label transferProgressLabel;
+    private Label networkStatsLabel;
+
+    private final AtomicBoolean running = new AtomicBoolean(true);
+    private final String localIP;
+    private final String localName;
+    private final String downloadPath;
+
+    private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm:ss");
+
     public TUIManager(UdpBroadcaster broadcaster, UdpListener listener, TcpServer tcpServer) {
         this.listener = listener;
+        this.broadcaster = broadcaster;
+        this.transferManager = new TransferManager();
+        this.transferManager.addListener(this);
+
+        this.downloadPath = System.getProperty("user.home") + "/Downloads/FileTransfer";
+        new File(downloadPath).mkdirs();
+
+        String ip, name;
         try {
-            this.localIP = InetAddress.getLocalHost().getHostAddress();
-            this.localName = System.getProperty("user.name");
+            ip = InetAddress.getLocalHost().getHostAddress();
+            name = System.getProperty("user.name");
         } catch (Exception e) {
-            this.localIP = "127.0.0.1";
-            this.localName = "Unknown";
+            ip = "127.0.0.1";
+            name = "Unknown";
         }
+        this.localIP = ip;
+        this.localName = name;
     }
-    
+
+    public TransferManager getTransferManager()  { return transferManager; }
+    public TransferCallback getTransferCallback() { return this; }
+    public String getDownloadPath()               { return downloadPath; }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Lifecycle
+    // ═══════════════════════════════════════════════════════════════
+
     public void start() throws IOException {
-        // Create terminal
         terminal = new DefaultTerminalFactory().createTerminal();
         screen = new TerminalScreen(terminal);
         screen.startScreen();
-        
-        // Create GUI
+
         gui = new MultiWindowTextGUI(screen, new DefaultWindowManager(), new EmptySpace(TextColor.ANSI.BLACK));
-        
-        // Create main window
-        createMainWindow();
-        
-        // Start refresh thread
+        buildMainWindow();
         startRefreshThread();
-        
-        // Process GUI (blocking)
         gui.addWindowAndWait(mainWindow);
-        
-        // Cleanup when window closes
         screen.stopScreen();
     }
-    
-    private void createMainWindow() {
-        mainWindow = new BasicWindow("LAN File Transfer - P2P");
+
+    public void shutdown() {
+        running.set(false);
+        transferManager.removeListener(this);
+        try {
+            if (screen != null) screen.stopScreen();
+        } catch (IllegalStateException | IOException ignored) {}
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Window construction
+    // ═══════════════════════════════════════════════════════════════
+
+    private void buildMainWindow() {
+        mainWindow = new BasicWindow();
         mainWindow.setHints(java.util.Arrays.asList(Window.Hint.CENTERED, Window.Hint.FIT_TERMINAL_WINDOW));
-        
-        Panel mainPanel = new Panel();
-        mainPanel.setLayoutManager(new LinearLayout(Direction.VERTICAL));
-        
+
+        Panel root = new Panel(new LinearLayout(Direction.VERTICAL));
+
         // Header
-        Panel headerPanel = new Panel();
-        headerPanel.setLayoutManager(new LinearLayout(Direction.VERTICAL));
-        
-        Label titleLabel = new Label("╔════════════════════════════════════════════╗");
-        titleLabel.setForegroundColor(TextColor.ANSI.CYAN_BRIGHT);
-        headerPanel.addComponent(titleLabel);
-        
-        Label titleText = new Label("║       P2P LAN File Transfer System         ║");
-        titleText.setForegroundColor(TextColor.ANSI.CYAN_BRIGHT);
-        headerPanel.addComponent(titleText);
-        
-        Label titleBottom = new Label("╚════════════════════════════════════════════╝");
-        titleBottom.setForegroundColor(TextColor.ANSI.CYAN_BRIGHT);
-        headerPanel.addComponent(titleBottom);
-        
-        mainPanel.addComponent(headerPanel);
-        
-        // Local info
-        Panel infoPanel = new Panel();
-        infoPanel.setLayoutManager(new LinearLayout(Direction.HORIZONTAL));
-        
-        Label localLabel = new Label("You: " + localName + " @ " + localIP);
-        localLabel.setForegroundColor(TextColor.ANSI.GREEN);
-        infoPanel.addComponent(localLabel);
-        
-        infoPanel.addComponent(new EmptySpace(new TerminalSize(5, 1)));
-        
-        timeLabel = new Label("Time: " + LocalDateTime.now().format(TIME_FORMAT));
-        timeLabel.setForegroundColor(TextColor.ANSI.WHITE);
-        infoPanel.addComponent(timeLabel);
-        
-        mainPanel.addComponent(infoPanel.withBorder(Borders.singleLine("Local Info")));
-        
-        mainPanel.addComponent(new EmptySpace(new TerminalSize(0, 1)));
-        
-        // Peer count label
-        peerCountLabel = new Label("Discovered Peers: 0");
-        peerCountLabel.setForegroundColor(TextColor.ANSI.YELLOW);
-        mainPanel.addComponent(peerCountLabel);
-        
-        // Peer list section
-        peerListPanel = new Panel();
-        peerListPanel.setLayoutManager(new LinearLayout(Direction.VERTICAL));
-        peerListPanel.setPreferredSize(new TerminalSize(60, 10));
-        mainPanel.addComponent(peerListPanel.withBorder(Borders.doubleLine("Online Peers")));
-        
-        mainPanel.addComponent(new EmptySpace(new TerminalSize(0, 1)));
-        
-        // Buttons with better styling
-        Panel buttonPanel = new Panel();
-        buttonPanel.setLayoutManager(new LinearLayout(Direction.HORIZONTAL));
-        
-        Button refreshButton = new Button("↻ Refresh", this::refreshPeerList);
-        Button sendButton = new Button("📁 Send File", this::showFileBrowser);
-        Button exitButton = new Button("✕ Exit", this::exit);
-        
-        buttonPanel.addComponent(refreshButton);
-        buttonPanel.addComponent(new EmptySpace(new TerminalSize(2, 1)));
-        buttonPanel.addComponent(sendButton);
-        buttonPanel.addComponent(new EmptySpace(new TerminalSize(2, 1)));
-        buttonPanel.addComponent(exitButton);
-        
-        mainPanel.addComponent(buttonPanel);
-        
-        mainPanel.addComponent(new EmptySpace(new TerminalSize(0, 1)));
-        
+        root.addComponent(buildHeader());
+
+        // Local info bar
+        root.addComponent(buildInfoPanel().withBorder(Borders.singleLine(" Local ")));
+
+        // Content: peers (left) + transfers (right)
+        Panel content = new Panel(new LinearLayout(Direction.HORIZONTAL));
+        content.addComponent(buildPeerSection());
+        content.addComponent(new EmptySpace(new TerminalSize(1, 1)));
+        content.addComponent(buildTransferSection());
+        root.addComponent(content);
+
+        // Buttons
+        root.addComponent(new EmptySpace(new TerminalSize(0, 1)));
+        root.addComponent(buildButtons());
+
         // Status bar
-        Panel statusPanel = new Panel();
-        statusPanel.setLayoutManager(new LinearLayout(Direction.HORIZONTAL));
-        
-        statusLabel = new Label("Ready - Press Tab to navigate, Enter to select");
-        statusLabel.setForegroundColor(TextColor.ANSI.GREEN_BRIGHT);
-        statusPanel.addComponent(statusLabel);
-        
-        mainPanel.addComponent(statusPanel.withBorder(Borders.singleLine("Status")));
-        
-        // Help text
-        Label helpLabel = new Label("[Tab] Navigate  [Enter] Select  [Esc] Exit");
-        helpLabel.setForegroundColor(TextColor.ANSI.WHITE);
-        mainPanel.addComponent(helpLabel);
-        
-        mainWindow.setComponent(mainPanel);
-        
-        // Initial peer list load
+        root.addComponent(buildStatusBar().withBorder(Borders.singleLine("Status")));
+
+        // Keybinding hints
+        Label help = new Label(" [Tab] Navigate  [Enter] Select  [R] Refresh  [S] Send  [Q/Esc] Exit ");
+        help.setForegroundColor(TextColor.ANSI.WHITE);
+        root.addComponent(help);
+
+        mainWindow.setComponent(root);
         refreshPeerList();
-        
-        // Handle window close
+        updateTransferHistory();
+
+        // Global keyboard shortcuts
         mainWindow.addWindowListener(new WindowListenerAdapter() {
             @Override
-            public void onUnhandledInput(Window basePane, com.googlecode.lanterna.input.KeyStroke keyStroke, AtomicBoolean hasBeenHandled) {
-                // Allow ESC to close
-                if (keyStroke.getKeyType() == com.googlecode.lanterna.input.KeyType.Escape) {
+            public void onUnhandledInput(Window basePane, com.googlecode.lanterna.input.KeyStroke ks, AtomicBoolean handled) {
+                if (ks.getKeyType() == com.googlecode.lanterna.input.KeyType.Escape) {
                     exit();
+                } else if (ks.getKeyType() == com.googlecode.lanterna.input.KeyType.Character) {
+                    switch (Character.toLowerCase(ks.getCharacter())) {
+                        case 'q' -> exit();
+                        case 'r' -> refreshPeerList();
+                        case 's' -> showSendFlow();
+                        case 'h' -> showHelp();
+                    }
                 }
             }
         });
     }
-    
+
+    // ─── Header ──────────────────────────────────────────────────
+
+    private Panel buildHeader() {
+        Panel p = new Panel(new LinearLayout(Direction.VERTICAL));
+        String[] art = {
+            "╔═══════════════════════════════════════════════════════════════════╗",
+            "║   File Transfer  ─  P2P LAN Share                               ║",
+            "╚═══════════════════════════════════════════════════════════════════╝"
+        };
+        for (String line : art) {
+            Label l = new Label(line);
+            l.setForegroundColor(TextColor.ANSI.CYAN_BRIGHT);
+            p.addComponent(l);
+        }
+        return p;
+    }
+
+    // ─── Local info ──────────────────────────────────────────────
+
+    private Panel buildInfoPanel() {
+        Panel p = new Panel(new GridLayout(4));
+
+        p.addComponent(new Label(" User:"));
+        Label user = new Label(localName);
+        user.setForegroundColor(TextColor.ANSI.GREEN_BRIGHT);
+        p.addComponent(user);
+
+        p.addComponent(new Label(" IP:"));
+        Label ip = new Label(localIP);
+        ip.setForegroundColor(TextColor.ANSI.YELLOW);
+        p.addComponent(ip);
+
+        p.addComponent(new Label(" Time:"));
+        timeLabel = new Label(LocalDateTime.now().format(TIME_FMT));
+        timeLabel.setForegroundColor(TextColor.ANSI.WHITE);
+        p.addComponent(timeLabel);
+
+        p.addComponent(new Label(" Stats:"));
+        networkStatsLabel = new Label("^ 0 B  v 0 B");
+        networkStatsLabel.setForegroundColor(TextColor.ANSI.MAGENTA);
+        p.addComponent(networkStatsLabel);
+
+        return p;
+    }
+
+    // ─── Peer list ───────────────────────────────────────────────
+
+    private Panel buildPeerSection() {
+        Panel p = new Panel(new LinearLayout(Direction.VERTICAL));
+
+        peerCountLabel = new Label(" Discovered Peers: 0");
+        peerCountLabel.setForegroundColor(TextColor.ANSI.YELLOW);
+        p.addComponent(peerCountLabel);
+
+        peerListPanel = new Panel(new LinearLayout(Direction.VERTICAL));
+        peerListPanel.setPreferredSize(new TerminalSize(44, 12));
+        p.addComponent(peerListPanel.withBorder(Borders.doubleLine(" Online Peers ")));
+
+        return p;
+    }
+
+    // ─── Transfer section ────────────────────────────────────────
+
+    private Panel buildTransferSection() {
+        Panel p = new Panel(new LinearLayout(Direction.VERTICAL));
+
+        // Current transfer
+        transferPanel = new Panel(new LinearLayout(Direction.VERTICAL));
+        transferPanel.setPreferredSize(new TerminalSize(35, 5));
+        transferProgressLabel = new Label("No active transfer");
+        transferProgressLabel.setForegroundColor(TextColor.ANSI.WHITE);
+        transferPanel.addComponent(transferProgressLabel);
+        p.addComponent(transferPanel.withBorder(Borders.singleLine(" Active Transfer ")));
+
+        // History
+        historyPanel = new Panel(new LinearLayout(Direction.VERTICAL));
+        historyPanel.setPreferredSize(new TerminalSize(35, 6));
+        p.addComponent(historyPanel.withBorder(Borders.singleLine(" Recent Transfers ")));
+
+        return p;
+    }
+
+    // ─── Buttons ─────────────────────────────────────────────────
+
+    private Panel buildButtons() {
+        Panel p = new Panel(new LinearLayout(Direction.HORIZONTAL));
+
+        p.addComponent(new Button(" Refresh [R]", this::refreshPeerList));
+        p.addComponent(new EmptySpace(new TerminalSize(1, 1)));
+        p.addComponent(new Button(" Send [S]", this::showSendFlow));
+        p.addComponent(new EmptySpace(new TerminalSize(1, 1)));
+        p.addComponent(new Button(" Settings", this::showSettings));
+        p.addComponent(new EmptySpace(new TerminalSize(1, 1)));
+        p.addComponent(new Button(" Help [H]", this::showHelp));
+        p.addComponent(new EmptySpace(new TerminalSize(1, 1)));
+        p.addComponent(new Button(" Exit [Q]", this::exit));
+
+        return p;
+    }
+
+    // ─── Status bar ──────────────────────────────────────────────
+
+    private Panel buildStatusBar() {
+        Panel p = new Panel(new LinearLayout(Direction.HORIZONTAL));
+        statusLabel = new Label(" Ready - Scanning for peers...");
+        statusLabel.setForegroundColor(TextColor.ANSI.GREEN_BRIGHT);
+        p.addComponent(statusLabel);
+        return p;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Refresh logic
+    // ═══════════════════════════════════════════════════════════════
+
     private void refreshPeerList() {
         peerListPanel.removeAllComponents();
-        
-        if (listener == null || listener.peerManager == null) {
-            peerListPanel.addComponent(new Label("⚠ Peer manager not initialized"));
+
+        if (listener == null) {
+            addLabel(peerListPanel, "  Peer manager not ready", TextColor.ANSI.RED);
             return;
         }
-        
-        // Clean up timed-out peers
-        listener.peerManager.deleteTimedOutPeers();
-        
-        // Get peers and filter out self
-        List<Peer> allPeers = listener.peerManager.getAlivePeers();
-        List<Peer> peers = allPeers.stream()
-            .filter(peer -> !peer.getIPAddress().equals(localIP))
-            .collect(Collectors.toList());
-        
-        // Update peer count
-        peerCountLabel.setText("Discovered Peers: " + peers.size());
-        
-        // Update time
-        timeLabel.setText("Time: " + LocalDateTime.now().format(TIME_FORMAT));
-        
+
+        List<Peer> peers = listener.getPeerManager().getAlivePeers().stream()
+                .filter(p -> !p.getPeerID().equals(broadcaster.getPeerID()))
+                .collect(Collectors.toList());
+
+        peerCountLabel.setText(" Discovered Peers: " + peers.size());
+        timeLabel.setText(LocalDateTime.now().format(TIME_FMT));
+        updateNetworkStats();
+
         if (peers.isEmpty()) {
-            Label emptyLabel = new Label("  Scanning for peers on the network...");
-            emptyLabel.setForegroundColor(TextColor.ANSI.YELLOW);
-            peerListPanel.addComponent(emptyLabel);
-            
-            Label hintLabel = new Label("  (Other devices must be running this app)");
-            hintLabel.setForegroundColor(TextColor.ANSI.WHITE);
-            peerListPanel.addComponent(hintLabel);
+            addLabel(peerListPanel, "  Scanning for peers...", TextColor.ANSI.YELLOW);
+            addLabel(peerListPanel, "", TextColor.ANSI.WHITE);
+            addLabel(peerListPanel, "  Make sure other devices are", TextColor.ANSI.WHITE);
+            addLabel(peerListPanel, "  running this app on the", TextColor.ANSI.WHITE);
+            addLabel(peerListPanel, "  same network.", TextColor.ANSI.WHITE);
         } else {
             for (int i = 0; i < peers.size(); i++) {
                 Peer peer = peers.get(i);
-                
-                Panel peerPanel = new Panel();
-                peerPanel.setLayoutManager(new LinearLayout(Direction.HORIZONTAL));
-                
-                // Peer info with number
-                String peerInfo = String.format("  %d. %-15s @ %-15s", 
-                    i + 1, 
-                    truncate(peer.getPeerName(), 15),
-                    peer.getIPAddress());
-                
-                Label peerLabel = new Label(peerInfo);
-                peerLabel.setForegroundColor(TextColor.ANSI.GREEN_BRIGHT);
-                
-                // Select button
-                final Peer selectedPeer = peer;
-                Button selectButton = new Button("Send →", () -> selectPeer(selectedPeer));
-                
-                peerPanel.addComponent(peerLabel);
-                peerPanel.addComponent(new EmptySpace(new TerminalSize(2, 1)));
-                peerPanel.addComponent(selectButton);
-                
-                peerListPanel.addComponent(peerPanel);
+                Panel row = new Panel(new LinearLayout(Direction.HORIZONTAL));
+
+                Label num = new Label(String.format(" %d.", i + 1));
+                num.setForegroundColor(TextColor.ANSI.WHITE);
+                row.addComponent(num);
+
+                Label name = new Label(String.format(" %-14s", FormatUtils.truncate(peer.getPeerName(), 14)));
+                name.setForegroundColor(TextColor.ANSI.GREEN_BRIGHT);
+                row.addComponent(name);
+
+                Label ip = new Label(peer.getIPAddress());
+                ip.setForegroundColor(TextColor.ANSI.CYAN);
+                row.addComponent(ip);
+
+                row.addComponent(new EmptySpace(new TerminalSize(1, 1)));
+
+                final Peer target = peer;
+                row.addComponent(new Button("Send", () -> showFileBrowserForPeer(target)));
+
+                peerListPanel.addComponent(row);
             }
         }
-        
-        updateStatus("Ready - " + peers.size() + " peer(s) online");
+
+        setStatus(" Ready - " + peers.size() + " peer(s) online");
     }
-    
-    private String truncate(String str, int maxLen) {
-        if (str == null) return "";
-        return str.length() > maxLen ? str.substring(0, maxLen - 2) + ".." : str;
+
+    private void updateNetworkStats() {
+        TransferManager.TransferStats s = transferManager.getStats();
+        networkStatsLabel.setText("^ " + s.getFormattedSent() + "  v " + s.getFormattedReceived());
     }
-    
-    private void selectPeer(Peer peer) {
-        updateStatus("Selected: " + peer.getPeerName() + " - Choose a file to send");
-        // Show file browser to send file to this peer
-        showFileBrowserForPeer(peer);
-    }
-    
-    private void showFileBrowser() {
-        if (listener == null || listener.peerManager == null) {
-            showError("Peer manager not initialized");
-            return;
-        }
-        
-        // Filter out self from peers list
-        List<Peer> peers = listener.peerManager.getAlivePeers().stream()
-            .filter(peer -> !peer.getIPAddress().equals(localIP))
-            .collect(Collectors.toList());
-            
-        if (peers.isEmpty()) {
-            showError("No peers available.\n\nMake sure other devices are running this application on the same network.");
-            return;
-        }
-        
-        // Show peer selection dialog
-        PeerSelectionDialog dialog = new PeerSelectionDialog(peers);
-        Peer selectedPeer = dialog.getSelectedPeer(gui);
-        
-        if (selectedPeer != null) {
-            showFileBrowserForPeer(selectedPeer);
-        }
-    }
-    
-    private void showFileBrowserForPeer(Peer peer) {
-        FileBrowserDialog fileBrowser = new FileBrowserDialog();
-        File selectedFile = fileBrowser.getSelectedFile(gui);
-        
-        if (selectedFile != null) {
-            sendFileToPeer(peer, selectedFile);
+
+    private void updateTransferHistory() {
+        historyPanel.removeAllComponents();
+        List<TransferInfo> recent = transferManager.getRecentTransfers(5);
+        if (recent.isEmpty()) {
+            addLabel(historyPanel, " No transfers yet", TextColor.ANSI.WHITE);
         } else {
-            updateStatus("File selection cancelled");
+            for (TransferInfo info : recent) {
+                Label l = new Label(" " + info.getSummary());
+                l.setForegroundColor(switch (info.getStatus()) {
+                    case COMPLETED   -> TextColor.ANSI.GREEN;
+                    case FAILED      -> TextColor.ANSI.RED;
+                    case CANCELLED   -> TextColor.ANSI.YELLOW;
+                    case IN_PROGRESS -> TextColor.ANSI.CYAN;
+                });
+                historyPanel.addComponent(l);
+            }
         }
     }
-    
+
+    private void updateCurrentTransfer() {
+        transferPanel.removeAllComponents();
+        TransferInfo cur = transferManager.getCurrentTransfer();
+        if (cur == null || cur.getStatus() != TransferInfo.Status.IN_PROGRESS) {
+            transferProgressLabel = new Label(" No active transfer");
+            transferProgressLabel.setForegroundColor(TextColor.ANSI.WHITE);
+            transferPanel.addComponent(transferProgressLabel);
+        } else {
+            Label fileLabel = new Label(" " + cur.getDirection().getSymbol() + " " + FormatUtils.truncate(cur.getFileName(), 25));
+            fileLabel.setForegroundColor(TextColor.ANSI.CYAN);
+            transferPanel.addComponent(fileLabel);
+
+            Label bar = new Label(" " + cur.getProgressBar(20));
+            bar.setForegroundColor(TextColor.ANSI.GREEN_BRIGHT);
+            transferPanel.addComponent(bar);
+
+            Label speed = new Label(" Speed: " + cur.getFormattedSpeed());
+            speed.setForegroundColor(TextColor.ANSI.YELLOW);
+            transferPanel.addComponent(speed);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Send flow
+    // ═══════════════════════════════════════════════════════════════
+
+    private void showSendFlow() {
+        if (listener == null) {
+            showError("Peer manager not ready");
+            return;
+        }
+        if (transferManager.hasActiveTransfer()) {
+            showError("A transfer is already in progress.\nPlease wait for it to complete.");
+            return;
+        }
+
+        List<Peer> peers = listener.getPeerManager().getAlivePeers().stream()
+                .filter(p -> !p.getPeerID().equals(broadcaster.getPeerID()))
+                .collect(Collectors.toList());
+        if (peers.isEmpty()) {
+            showError("No peers available.\n\nMake sure other devices are running\nthis application on the same network.");
+            return;
+        }
+
+        Peer target = new PeerSelectionDialog(peers).getSelectedPeer(gui);
+        if (target != null) {
+            showFileBrowserForPeer(target);
+        }
+    }
+
+    private void showFileBrowserForPeer(Peer peer) {
+        File file = new FileBrowserDialog().getSelectedFile(gui);
+        if (file != null) {
+            sendFileToPeer(peer, file);
+        } else {
+            setStatus(" File selection cancelled");
+        }
+    }
+
     private void sendFileToPeer(Peer peer, File file) {
-        updateStatus("⏳ Connecting to " + peer.getPeerName() + "...");
-        
-        // Connect to peer and send file in background thread
+        setStatus(" Connecting to " + peer.getPeerName() + "...");
+
+        transferManager.startTransfer(
+                file.getName(), file.length(),
+                peer.getPeerName(), peer.getIPAddress(),
+                TransferInfo.Direction.SENDING);
+        updateCurrentTransfer();
+
         new Thread(() -> {
             try {
-                Socket socket = new Socket(peer.getIPAddress(), 50001);
-                PeerConnection connection = new PeerConnection(socket);
-                
-                // Start connection thread
-                Thread connThread = new Thread(connection);
+                Socket socket = new Socket(peer.getIPAddress(), peer.getTcpPort());
+                PeerConnection conn = new PeerConnection(socket, this,
+                        broadcaster.getPeerID(), localName);
+
+                Thread connThread = new Thread(conn, "PeerConn-Send");
+                connThread.setDaemon(true);
                 connThread.start();
-                
-                // Wait a bit for HELLO handshake
-                Thread.sleep(500);
-                
-                // Send file request
-                connection.sendFileRequest(file);
-                
-                String fileSize = formatFileSize(file.length());
-                gui.getGUIThread().invokeLater(() -> {
-                    updateStatus("✓ Sent: " + file.getName() + " (" + fileSize + ") → " + peer.getPeerName());
-                    showInfo("File Transfer", 
-                        "File request sent successfully!\n\n" +
-                        "File: " + file.getName() + "\n" +
-                        "Size: " + fileSize + "\n" +
-                        "To: " + peer.getPeerName());
-                });
-                
+
+                conn.sendFileRequest(file);
+
+                String size = FormatUtils.formatFileSize(file.length());
+                invokeLater(() -> setStatus(" Sending: " + file.getName() + " (" + size + ") -> " + peer.getPeerName()));
+
             } catch (Exception e) {
-                gui.getGUIThread().invokeLater(() -> {
-                    showError("Connection failed!\n\n" + 
-                        "Peer: " + peer.getPeerName() + "\n" +
-                        "Error: " + e.getMessage());
-                    updateStatus("✗ Connection failed to " + peer.getPeerName());
+                transferManager.failTransfer(e.getMessage());
+                invokeLater(() -> {
+                    showError("Connection failed!\n\nPeer: " + peer.getPeerName() + "\nError: " + e.getMessage());
+                    setStatus(" Connection failed to " + peer.getPeerName());
+                    updateCurrentTransfer();
+                    updateTransferHistory();
                 });
             }
-        }).start();
+        }, "Send-Init").start();
     }
-    
-    private String formatFileSize(long bytes) {
-        if (bytes < 1024) return bytes + " B";
-        int exp = (int) (Math.log(bytes) / Math.log(1024));
-        String pre = "KMGTPE".charAt(exp-1) + "";
-        return String.format("%.2f %sB", bytes / Math.pow(1024, exp), pre);
+
+    // ═══════════════════════════════════════════════════════════════
+    // Dialogs
+    // ═══════════════════════════════════════════════════════════════
+
+    private void showSettings() {
+        String msg = "Current Settings\n\n"
+                + "Download Path:\n  " + downloadPath + "\n\n"
+                + "Local IP: " + localIP + "\n"
+                + "User Name: " + localName + "\n\n"
+                + "Network Ports:\n"
+                + "  UDP Discovery: 50000\n"
+                + "  TCP Transfer:  50001\n";
+        MessageDialog.showMessageDialog(gui, " Settings", msg, MessageDialogButton.OK);
     }
-    
-    private void startRefreshThread() {
-        Thread refreshThread = new Thread(() -> {
-            while (running.get()) {
-                try {
-                    Thread.sleep(3000); // Refresh every 3 seconds
-                    if (gui != null && gui.getGUIThread() != null) {
-                        gui.getGUIThread().invokeLater(this::refreshPeerList);
-                    }
-                } catch (InterruptedException e) {
-                    break;
-                }
-            }
-        });
-        refreshThread.setDaemon(true);
-        refreshThread.setName("TUI-Refresh");
-        refreshThread.start();
+
+    private void showHelp() {
+        String msg = "File Transfer Help\n\n"
+                + "--- Keyboard Shortcuts ---\n"
+                + "  [R]     Refresh peer list\n"
+                + "  [S]     Send a file\n"
+                + "  [H]     This help screen\n"
+                + "  [Q/Esc] Exit application\n"
+                + "  [Tab]   Navigate elements\n"
+                + "  [Enter] Select / activate\n\n"
+                + "--- How to Use ---\n"
+                + "1. Wait for peers to appear\n"
+                + "2. Click [Send] next to a peer\n"
+                + "   or press [S] to pick a peer\n"
+                + "3. Choose a file to send\n"
+                + "4. The receiver will be prompted\n"
+                + "5. Transfer begins automatically\n\n"
+                + "Files are saved to:\n  " + downloadPath;
+        MessageDialog.showMessageDialog(gui, " Help", msg, MessageDialogButton.OK);
     }
-    
-    private void updateStatus(String message) {
-        if (statusLabel != null) {
-            statusLabel.setText(message);
+
+    // ═══════════════════════════════════════════════════════════════
+    // Utility
+    // ═══════════════════════════════════════════════════════════════
+
+    private void setStatus(String msg) {
+        if (statusLabel != null) statusLabel.setText(msg);
+    }
+
+    private void showError(String msg) {
+        MessageDialog.showMessageDialog(gui, " Error", msg, MessageDialogButton.OK);
+    }
+
+    private void addLabel(Panel panel, String text, TextColor color) {
+        Label l = new Label(text);
+        l.setForegroundColor(color);
+        panel.addComponent(l);
+    }
+
+    private void invokeLater(Runnable r) {
+        if (gui != null && gui.getGUIThread() != null) {
+            gui.getGUIThread().invokeLater(r);
         }
     }
-    
-    private void showError(String message) {
-        MessageDialog.showMessageDialog(gui, "⚠ Error", message, MessageDialogButton.OK);
-    }
-    
-    private void showInfo(String title, String message) {
-        MessageDialog.showMessageDialog(gui, title, message, MessageDialogButton.OK);
-    }
-    
+
     private void exit() {
         running.set(false);
         mainWindow.close();
     }
-    
-    public void shutdown() {
-        running.set(false);
-        try {
-            if (screen != null) {
-                screen.stopScreen();
+
+    private void startRefreshThread() {
+        Thread t = new Thread(() -> {
+            while (running.get()) {
+                try {
+                    Thread.sleep(2000);
+                    invokeLater(() -> {
+                        refreshPeerList();
+                        updateCurrentTransfer();
+                    });
+                } catch (InterruptedException e) {
+                    break;
+                }
             }
-        } catch (IllegalStateException | IOException e) {
-            // Ignore - screen may already be closed
+        }, "TUI-Refresh");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // TransferCallback implementation
+    // ═══════════════════════════════════════════════════════════════
+
+    @Override
+    public void onProgress(long bytesTransferred, long totalBytes, String fileName) {
+        transferManager.updateProgress(bytesTransferred);
+        invokeLater(this::updateCurrentTransfer);
+    }
+
+    @Override
+    public void onTransferStart(String fileName, long totalBytes, boolean isSending) {
+        invokeLater(() -> {
+            String dir = isSending ? " Sending" : " Receiving";
+            setStatus(dir + ": " + fileName + " (" + FormatUtils.formatFileSize(totalBytes) + ")");
+            updateCurrentTransfer();
+        });
+    }
+
+    @Override
+    public void onTransferComplete(String fileName, String checksum) {
+        transferManager.completeTransfer(checksum);
+        invokeLater(() -> {
+            setStatus(" Transfer complete: " + fileName);
+            updateCurrentTransfer();
+            updateTransferHistory();
+            updateNetworkStats();
+            MessageDialog.showMessageDialog(gui, " Transfer Complete",
+                    "File: " + fileName + "\nChecksum: " + checksum.substring(0, Math.min(8, checksum.length())) + "...",
+                    MessageDialogButton.OK);
+        });
+    }
+
+    @Override
+    public void onTransferError(String fileName, String error) {
+        transferManager.failTransfer(error);
+        invokeLater(() -> {
+            setStatus(" Transfer failed: " + fileName);
+            updateCurrentTransfer();
+            updateTransferHistory();
+            showError("Transfer Failed\n\nFile: " + fileName + "\nError: " + error);
+        });
+    }
+
+    @Override
+    public boolean onTransferRequest(String peerName, String peerIP, String fileName, long fileSize) {
+        // Use CountDownLatch instead of wait/notify to avoid potential deadlock
+        final boolean[] result = {false};
+        final CountDownLatch latch = new CountDownLatch(1);
+
+        invokeLater(() -> {
+            try {
+                String msg = String.format(
+                        "Incoming File\n\n"
+                        + "From: %s (%s)\n"
+                        + "File: %s\n"
+                        + "Size: %s\n\n"
+                        + "Accept this file?",
+                        peerName, peerIP, fileName, FormatUtils.formatFileSize(fileSize));
+
+                MessageDialogButton answer = MessageDialog.showMessageDialog(
+                        gui, " Incoming Transfer", msg,
+                        MessageDialogButton.Yes, MessageDialogButton.No);
+
+                result[0] = (answer == MessageDialogButton.Yes);
+                if (result[0]) {
+                    transferManager.startTransfer(fileName, fileSize, peerName, peerIP,
+                            TransferInfo.Direction.RECEIVING);
+                    updateCurrentTransfer();
+                }
+            } finally {
+                latch.countDown();
+            }
+        });
+
+        try {
+            latch.await();
+        } catch (InterruptedException e) {
+            return false;
         }
+        return result[0];
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // TransferManagerListener implementation
+    // ═══════════════════════════════════════════════════════════════
+
+    @Override
+    public void onTransferListChanged() {
+        invokeLater(() -> {
+            updateTransferHistory();
+            updateNetworkStats();
+        });
+    }
+
+    @Override
+    public void onActiveTransferProgress() {
+        invokeLater(this::updateCurrentTransfer);
     }
 }

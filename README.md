@@ -103,9 +103,12 @@ src/main/java/FileTransfer/
 │   ├── protocol/
 │   │   ├── MessageType.java      # Enum message types
 │   │   └── Protocol.java         # Constants & builders
-│   └── transfer/
-│       ├── FileReceiver.java     # Nhận file
-│       └── FileSender.java       # Gửi file
+│   ├── transfer/
+│   │   ├── TransferCallback.java # Callback interface
+│   │   ├── TransferInfo.java     # Transfer metadata
+│   │   └── TransferManager.java  # Transfer history & stats
+│   └── util/
+│       └── FormatUtils.java      # Shared formatting utils
 └── ui/
     ├── FileBrowserDialog.java    # Dialog chọn file
     ├── PeerSelectionDialog.java  # Dialog chọn peer
